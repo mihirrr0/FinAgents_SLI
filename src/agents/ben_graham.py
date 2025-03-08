@@ -12,7 +12,7 @@ import math
 
 
 class BenGrahamSignal(BaseModel):
-    signal: Literal["bullish", "bearish", "neutral"]
+    signal: Literal["neutral", "bullish", "bearish"]
     confidence: float
     reasoning: str
 
@@ -44,17 +44,17 @@ def ben_graham_agent(state: AgentState):
 
         # Perform sub-analyses
         progress.update_status("ben_graham_agent", ticker, "Analyzing earnings stability")
-        earnings_analysis = analyze_earnings_stability(metrics, financial_line_items)
+        earnings_analysis = analyze_earnings_stability(metrics, financial_line_items) # max possible score = 4
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing financial strength")
-        strength_analysis = analyze_financial_strength(metrics, financial_line_items)
+        strength_analysis = analyze_financial_strength(metrics, financial_line_items) # max possible score = 5
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing Graham valuation")
-        valuation_analysis = analyze_valuation_graham(metrics, financial_line_items, market_cap)
+        valuation_analysis = analyze_valuation_graham(metrics, financial_line_items, market_cap) # max possible score = 7
 
         # Aggregate scoring
         total_score = earnings_analysis["score"] + strength_analysis["score"] + valuation_analysis["score"]
-        max_possible_score = 15  # total possible from the three analysis functions
+        max_possible_score = 16  # total possible from the three analysis functions
 
         # Map total_score to signal
         if total_score >= 0.7 * max_possible_score:
