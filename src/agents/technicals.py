@@ -152,7 +152,7 @@ def calculate_trend_signals(prices_df):
     medium_trend = ema_21 > ema_55
 
     # Combine signals with confidence weighting
-    trend_strength = adx["adx"].iloc[-1] / 100.0
+    trend_strength = float(adx["adx"].iloc[-1])
 
     if short_trend.iloc[-1] and medium_trend.iloc[-1]:
         signal = "bullish"
@@ -166,10 +166,10 @@ def calculate_trend_signals(prices_df):
 
     return {
         "signal": signal,
-        "confidence": confidence,
+        "confidence": confidence / 100.0,
         "metrics": {
             "adx": float(adx["adx"].iloc[-1]),
-            "trend_strength": float(trend_strength),
+            "trend_strength": trend_strength,
         },
     }
 
