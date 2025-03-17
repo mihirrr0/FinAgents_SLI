@@ -452,11 +452,20 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df["plus_dm"] = np.where((df["up_move"] > df["down_move"]) & (df["up_move"] > 0), df["up_move"], 0)
     df["minus_dm"] = np.where((df["down_move"] > df["up_move"]) & (df["down_move"] > 0), df["down_move"], 0)
 
-    # Calculate ADX
-    df["+di"] = 100 * (df["plus_dm"].ewm(span=period).mean() / df["tr"].ewm(span=period).mean())
-    df["-di"] = 100 * (df["minus_dm"].ewm(span=period).mean() / df["tr"].ewm(span=period).mean())
+    # Smooth TR, +DM, -DM using EMA
+    df["smoothed_tr"] = df["tr"].ewm(span=period, adjust=False).mean()
+    df["smoothed_plus_dm"] = df["plus_dm"].ewm(span=period, adjust=False).mean()
+    df["smoothed_minus_dm"] = df["minus_dm"].ewm(span=period, adjust=False).mean()
+
+    # Calculate +DI and -DI
+    df["+di"] = 100 * (df["smoothed_plus_dm"] / df["smoothed_tr"])
+    df["-di"] = 100 * (df["smoothed_minus_dm"] / df["smoothed_tr"])
+
+    # Calculate DX
     df["dx"] = 100 * abs(df["+di"] - df["-di"]) / (df["+di"] + df["-di"])
-    df["adx"] = df["dx"].ewm(span=period).mean()
+
+    # Calculate ADX using EMA
+    df["adx"] = df["dx"].ewm(span=period, adjust=False).mean()
 
     return df[["adx", "+di", "-di"]]
 
