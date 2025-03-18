@@ -130,7 +130,7 @@ def technical_analyst_agent(state: AgentState):
     state["data"]["analyst_signals"]["technical_analyst_agent"] = technical_analysis
 
     return {
-        "messages": state["messages"] + [message],
+        "messages": [message],
         "data": data,
     }
 
