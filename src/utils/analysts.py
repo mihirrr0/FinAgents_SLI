@@ -17,45 +17,25 @@ ANALYST_CONFIG = {
         "agent_func": ben_graham_agent,
         "order": 0,
     },
-    "bill_ackman": {
-        "display_name": "Bill Ackman",
-        "agent_func": bill_ackman_agent,
-        "order": 1,
-    },
-    "cathie_wood": {
-        "display_name": "Cathie Wood",
-        "agent_func": cathie_wood_agent,
-        "order": 2,
-    },
-    "charlie_munger": {
-        "display_name": "Charlie Munger",
-        "agent_func": charlie_munger_agent,
-        "order": 3,
-    },
-    "warren_buffett": {
-        "display_name": "Warren Buffett",
-        "agent_func": warren_buffett_agent,
-        "order": 4,
-    },
     "technical_analyst": {
         "display_name": "Technical Analyst",
         "agent_func": technical_analyst_agent,
-        "order": 4,
+        "order": 1,
     },
     "fundamentals_analyst": {
         "display_name": "Fundamentals Analyst",
         "agent_func": fundamentals_agent,
-        "order": 5,
+        "order": 2,
     },
     "sentiment_analyst": {
         "display_name": "Sentiment Analyst",
         "agent_func": sentiment_agent,
-        "order": 6,
+        "order": 3,
     },
     "valuation_analyst": {
         "display_name": "Valuation Analyst",
         "agent_func": valuation_agent,
-        "order": 7,
+        "order": 4,
     },
 }
 
