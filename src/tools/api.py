@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import requests
-
+import yfinance as yf
 from data.cache import get_cache
 from data.models import (
     CompanyNews,
@@ -30,18 +30,40 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
             return filtered_data
 
     # If not in cache or no data in range, fetch from API
-    headers = {}
-    if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
-        headers["X-API-KEY"] = api_key
-
-    url = f"https://api.financialdatasets.ai/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        raise Exception(f"Error fetching data: {ticker} - {response.status_code} - {response.text}")
-
-    # Parse response with Pydantic model
-    price_response = PriceResponse(**response.json())
-    prices = price_response.prices
+    """
+    Fetch historical stock data from Yahoo Finance using yfinance and return it as a list of Price objects.
+    
+    Args:
+        ticker (str): Stock ticker symbol (e.g., "AAPL" for Apple).
+        start_date (str): Start date in 'YYYY-MM-DD' format.
+        end_date (str): End date in 'YYYY-MM-DD' format.
+    
+    Returns:
+        List[Price]: A list of Price objects conforming to the Price Pydantic model.
+    """
+    if not ticker.endswith('.NS'):
+        ticker = f"{ticker}.NS"
+    
+    # Create a Ticker object
+    stock = yf.Ticker(ticker)
+    
+    # Fetch historical data
+    # interval='1d' ensures daily data;
+    hist_data = stock.history(start=start_date, end=end_date, interval='1d')
+    
+    # Convert DataFrame to list of Price objects
+    prices = []
+    for index, row in hist_data.iterrows():
+        price = Price(
+            open=float(row['Open']),
+            close=float(row['Close']),
+            high=float(row['High']),
+            low=float(row['Low']),
+            volume=int(row['Volume']),
+            time=index.strftime('%Y-%m-%d')  # Format timestamp as string
+        )
+        prices.append(price)
+    
 
     if not prices:
         return []
