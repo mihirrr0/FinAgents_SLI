@@ -211,23 +211,20 @@ def calculate_intrinsic_value(
     Computes the discounted cash flow (DCF) for a given company based on the current free cash flow.
     Use this function to calculate the intrinsic value of a stock.
     """
-    # Estimate the future cash flows based on the growth rate
-    cash_flows = [free_cash_flow * (1 + growth_rate) ** i for i in range(num_years)]
+    # Project future cash flows (years 1 to num_years)
+    cash_flows = [free_cash_flow * (1 + growth_rate) ** i for i in range(1, num_years + 1)]
 
-    # Calculate the present value of projected cash flows
-    present_values = []
-    for i in range(num_years):
-        present_value = cash_flows[i] / (1 + discount_rate) ** (i + 1)
-        present_values.append(present_value)
+    # Calculate present value of projected cash flows
+    present_values = [cf / (1 + discount_rate) ** i for i, cf in enumerate(cash_flows, start=1)]
 
-    # Calculate the terminal value
+    # Calculate terminal value at the end of the projection period
     terminal_value = cash_flows[-1] * (1 + terminal_growth_rate) / (discount_rate - terminal_growth_rate)
     terminal_present_value = terminal_value / (1 + discount_rate) ** num_years
 
-    # Sum up the present values and terminal value
+    # Total intrinsic value
     dcf_value = sum(present_values) + terminal_present_value
 
-    return dcf_value
+    return round(dcf_value, 2)
 
 
 def calculate_working_capital_change(
