@@ -506,23 +506,13 @@ def calculate_hurst_exponent(price_series: pd.Series, max_lag: int = 20) -> floa
         float: Hurst exponent
     """
     lags = range(2, max_lag)
-    rs_values = []
+    # Add small epsilon to avoid log(0)
+    tau = [max(1e-8, np.sqrt(np.std(np.subtract(price_series[lag:], price_series[:-lag])))) for lag in lags]
 
-    for lag in lags:
-        sub_series = [price_series[i:i + lag].values for i in range(0, len(price_series) - lag + 1, lag) if len(price_series[i:i + lag]) == lag]
-        if not sub_series:
-            continue
-        means = np.mean(sub_series, axis=1)
-        deviations = np.cumsum(sub_series - means[:, np.newaxis], axis=1)
-        r = np.max(deviations, axis=1) - np.min(deviations, axis=1)
-        s = np.std(sub_series, axis=1)
-        rs_values.append(np.mean(r[s > 0] / s[s > 0]))
-
-    tau = np.array(rs_values)
-    if len(tau) < 2:
-        return 0.5
+    # Return the Hurst exponent from linear fit
     try:
         reg = np.polyfit(np.log(lags), np.log(tau), 1)
-        return reg[0]
+        return reg[0]  # Hurst exponent is the slope
     except (ValueError, RuntimeWarning):
+        # Return 0.5 (random walk) if calculation fails
         return 0.5
