@@ -174,27 +174,30 @@ def calculate_owner_earnings_value(
 
     # Calculate initial owner earnings
     owner_earnings = net_income + depreciation - capex - working_capital_change
-
     if owner_earnings <= 0:
-        return 0
+        return 0  # Could raise an exception instead, depending on use case
 
-    # Project future owner earnings
+    # Project and discount future owner earnings
     future_values = []
+    last_future_value = owner_earnings  # Track undiscounted value for terminal calc
     for year in range(1, num_years + 1):
-        future_value = owner_earnings * (1 + growth_rate) ** year
-        discounted_value = future_value / (1 + required_return) ** year
+        last_future_value = owner_earnings * (1 + growth_rate) ** year  # Undiscounted FV
+        discounted_value = last_future_value / (1 + required_return) ** year
         future_values.append(discounted_value)
 
-    # Calculate terminal value (using perpetuity growth formula)
-    terminal_growth = min(growth_rate, 0.03)  # Cap terminal growth at 3%
-    terminal_value = (future_values[-1] * (1 + terminal_growth)) / (required_return - terminal_growth)
+    # Calculate terminal value using undiscounted year-end value
+    terminal_growth = min(growth_rate, 0.03)
+    if required_return <= terminal_growth:
+        raise ValueError("Required return must exceed terminal growth rate")
+    terminal_value = (last_future_value * (1 + terminal_growth)) / (required_return - terminal_growth)
     terminal_value_discounted = terminal_value / (1 + required_return) ** num_years
 
-    # Sum all values and apply margin of safety
+    # Calculate intrinsic value with margin of safety
     intrinsic_value = sum(future_values) + terminal_value_discounted
     value_with_safety_margin = intrinsic_value * (1 - margin_of_safety)
 
-    return value_with_safety_margin
+    return round(value_with_safety_margin, 2)
+
 
 
 def calculate_intrinsic_value(
