@@ -331,7 +331,13 @@ class Backtester:
         for current_date in dates:
             lookback_start = (current_date - timedelta(days=30)).strftime("%Y-%m-%d")
             current_date_str = current_date.strftime("%Y-%m-%d")
-            previous_date_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            # Use the previous business day from the dates list
+            current_idx = list(dates).index(current_date)
+            if current_idx == 0:
+                continue  # Skip the first date since there's no previous business day
+            previous_date = dates[current_idx - 1]
+            previous_date_str = previous_date.strftime("%Y-%m-%d")
 
             # Skip if there's no prior day to look back (i.e., first date in the range)
             if lookback_start == current_date_str:
@@ -657,6 +663,9 @@ if __name__ == "__main__":
 
     # Parse tickers from comma-separated string
     tickers = [ticker.strip() for ticker in args.tickers.split(",")] if args.tickers else []
+    if not tickers:
+        print("Error: At least one ticker must be provided.")
+        sys.exit(1)
 
     # Choose analysts
     selected_analysts = None
