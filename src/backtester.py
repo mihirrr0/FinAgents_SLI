@@ -542,8 +542,11 @@ class Backtester:
 
         final_portfolio_value = performance_df["Portfolio Value"].iloc[-1]
         total_realized_gains = sum(
-            self.portfolio["realized_gains"][ticker]["long"] for ticker in self.tickers
+            self.portfolio["realized_gains"][ticker]["long"] + 
+            self.portfolio["realized_gains"][ticker]["short"]
+            for ticker in self.tickers
         )
+
         total_return = ((final_portfolio_value - self.initial_capital) / self.initial_capital) * 100
 
         print(f"\n{Fore.WHITE}{Style.BRIGHT}PORTFOLIO PERFORMANCE SUMMARY:{Style.RESET_ALL}")
