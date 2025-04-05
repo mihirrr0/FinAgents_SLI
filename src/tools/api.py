@@ -95,7 +95,7 @@ def get_closest_price(ticker, date_str):
     return None
 
 # Calculate financial metrics from CSV data
-def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker='INFY'):
+def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker):
     for df in [bs_df, cf_df, pnl_df]:
         for col in df.columns:
             df[col] = df[col].apply(clean_numeric)
@@ -202,6 +202,9 @@ def get_financial_metrics(
     except FileNotFoundError as e:
         print(f"Error: CSV files for {ticker} not found - {e}")
         return []
+    
+    if not ticker.endswith('.NS'):
+        ticker = f"{ticker}.NS"
 
     # Calculate metrics
     metrics_response = calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker)
