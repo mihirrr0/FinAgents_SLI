@@ -15,7 +15,9 @@ from data.models import (
     InsiderTrade,
     InsiderTradeResponse,
 )
-
+from typing import List
+import numpy as np
+from datetime import datetime, timedelta
 # Global cache instance
 _cache = get_cache()
 
@@ -73,42 +75,154 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     return prices
 
 
+def clean_numeric(value):
+    if isinstance(value, str):
+        if '%' in value:
+            return float(value.replace('%', '').replace('"', '')) / 100
+        return float(value.replace(',', '').replace('"', ''))
+    return float(value) if value is not None else None
+
+# Fetch historical price from Yahoo Finance for a specific date
+def get_closest_price(ticker, date_str):
+    stock = yf.Ticker(ticker)
+    date = pd.to_datetime(date_str).tz_localize('UTC')
+    start_date = date - timedelta(days=5)
+    end_date = date + timedelta(days=5)
+    hist = stock.history(start=start_date, end=end_date)
+    if not hist.empty:
+        idx = np.abs((hist.index - date).days).argmin()
+        return hist['Close'].iloc[idx]
+    return None
+
+# Calculate financial metrics from CSV data
+def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker='INFY'):
+    for df in [bs_df, cf_df, pnl_df]:
+        for col in df.columns:
+            df[col] = df[col].apply(clean_numeric)
+    
+    dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
+    stock = yf.Ticker(ticker)
+    shares_outstanding = stock.info['sharesOutstanding'] / 1000000
+    
+    metrics_list = []
+    
+    for i, date in enumerate(dates):
+        equity = bs_df.loc['Equity Capital'][date]
+        reserves = bs_df.loc['Reserves'][date]
+        borrowings = bs_df.loc['Borrowings\xa0+'][date]
+        other_liab = bs_df.loc['Other Liabilities\xa0+'][date]
+        total_assets = bs_df.loc['Total Assets'][date]
+        
+        sales = pnl_df.loc['Sales\xa0+'][date]
+        op_profit = pnl_df.loc['Operating Profit'][date]
+        net_profit = pnl_df.loc['Net Profit\xa0+'][date]
+        eps = pnl_df.loc['EPS in Rs'][date]
+        
+        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date]
+        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date]
+        
+        book_value = equity + reserves
+        price = get_closest_price(ticker, date)
+        if price is not None:
+            market_cap = price * shares_outstanding
+        else:
+            market_cap = net_profit * 20
+            price = market_cap / shares_outstanding
+        
+        pe_ratio = price / eps if eps != 0 else None
+        pb_ratio = price / (book_value / shares_outstanding) if book_value != 0 else None
+        ps_ratio = price / (sales / shares_outstanding) if sales != 0 else None
+        
+        op_margin = (op_profit / sales) if sales != 0 else None  # Fixed: No * 100
+        net_margin = (net_profit / sales) if sales != 0 else None  # Fixed: No * 100
+        roe = (net_profit / book_value) if book_value != 0 else None  # Fixed: No * 100
+        
+        rev_growth = None
+        earn_growth = None
+        bv_growth = None
+        if i > 0:
+            prev_date = dates[i-1]
+            prev_sales = pnl_df.loc['Sales\xa0+'][prev_date]
+            prev_profit = pnl_df.loc['Net Profit\xa0+'][prev_date]
+            prev_bv = bs_df.loc['Equity Capital'][prev_date] + bs_df.loc['Reserves'][prev_date]
+            prev_price = get_closest_price(ticker, prev_date)
+            if prev_price is not None:
+                market_cap_prev = prev_price * shares_outstanding
+            else:
+                market_cap_prev = prev_profit * 20
+                prev_price = market_cap_prev / shares_outstanding
+            
+            rev_growth = ((sales - prev_sales) / prev_sales) if prev_sales != 0 else None  # Fixed: No * 100
+            earn_growth = ((net_profit - prev_profit) / prev_profit) if prev_profit != 0 else None  # Fixed: No * 100
+            bv_growth = ((book_value - prev_bv) / prev_bv) if prev_bv != 0 else None  # Fixed: No * 100
+        
+        current_assets = bs_df.loc['Other Assets\xa0+'][date]
+        current_liab = other_liab
+        current_ratio = current_assets / current_liab if current_liab != 0 else None
+        
+        de_ratio = borrowings / book_value if book_value != 0 else None
+        
+        fcf = cash_op + cash_inv
+        fcf_per_share = fcf / shares_outstanding if shares_outstanding != 0 else None
+        
+        metrics = FinancialMetrics(
+            ticker=ticker,
+            report_period=date,
+            price_to_earnings_ratio=round(pe_ratio, 2) if pe_ratio else None,
+            price_to_book_ratio=round(pb_ratio, 2) if pb_ratio else None,
+            price_to_sales_ratio=round(ps_ratio, 2) if ps_ratio else None,
+            operating_margin=round(op_margin, 2) if op_margin else None,
+            net_margin=round(net_margin, 2) if net_margin else None,
+            return_on_equity=round(roe, 2) if roe else None,
+            revenue_growth=round(rev_growth, 2) if rev_growth else None,
+            earnings_growth=round(earn_growth, 2) if earn_growth else None,
+            book_value_growth=round(bv_growth, 2) if bv_growth else None,
+            current_ratio=round(current_ratio, 2) if current_ratio else None,
+            debt_to_equity=round(de_ratio, 2) if de_ratio else None,
+            free_cash_flow_per_share=round(fcf_per_share, 2) if fcf_per_share else None,
+            earnings_per_share=round(eps, 2) if eps else None
+        )
+        metrics_list.append(metrics)
+    
+    return FinancialMetricsResponse(financial_metrics=metrics_list)
+
+# Modified get_financial_metrics function for Indian stocks
 def get_financial_metrics(
     ticker: str,
     end_date: str,
     period: str = "ttm",
     limit: int = 10,
-) -> list[FinancialMetrics]:
-    """Fetch financial metrics from cache or API."""
-    # Check cache first
-    if cached_data := _cache.get_financial_metrics(ticker):
-        # Filter cached data by date and limit
-        filtered_data = [FinancialMetrics(**metric) for metric in cached_data if metric["report_period"] <= end_date]
-        filtered_data.sort(key=lambda x: x.report_period, reverse=True)
-        if filtered_data:
-            return filtered_data[:limit]
+) -> List[FinancialMetrics]:
+    """Fetch financial metrics for Indian stocks using local CSV data and Yahoo Finance."""
+    # Load CSV data (assuming files are named consistently with ticker)
+    try:
+        bs_df = pd.read_csv(f'src/tools/financial_data/{ticker}_BS.csv', index_col=0)
+        cf_df = pd.read_csv(f'src/tools/financial_data/{ticker}_CF.csv', index_col=0)
+        pnl_df = pd.read_csv(f'src/tools/financial_data/{ticker}_PNL.csv', index_col=0)
+    except FileNotFoundError as e:
+        print(f"Error: CSV files for {ticker} not found - {e}")
+        return []
 
-    # If not in cache or insufficient data, fetch from API
-    headers = {}
-    if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
-        headers["X-API-KEY"] = api_key
-
-    url = f"https://api.financialdatasets.ai/financial-metrics/?ticker={ticker}&report_period_lte={end_date}&limit={limit}&period={period}"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        raise Exception(f"Error fetching data: {ticker} - {response.status_code} - {response.text}")
-
-    # Parse response with Pydantic model
-    metrics_response = FinancialMetricsResponse(**response.json())
-    # Return the FinancialMetrics objects directly instead of converting to dict
+    # Calculate metrics
+    metrics_response = calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker)
     financial_metrics = metrics_response.financial_metrics
 
     if not financial_metrics:
         return []
 
-    # Cache the results as dicts
-    _cache.set_financial_metrics(ticker, [m.model_dump() for m in financial_metrics])
-    return financial_metrics
+    # Filter by end_date and limit
+    end_date_dt = pd.to_datetime(end_date)
+    filtered_metrics = [m for m in financial_metrics if pd.to_datetime(m.report_period) <= end_date_dt]
+    filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
+    
+    # Handle period (currently only annual data, TTM not directly supported)
+    if period.lower() == "ttm":
+        # For TTM, take the most recent period as an approximation
+        return filtered_metrics[:min(limit, len(filtered_metrics))]
+    else:
+        # Assume annual data as per CSV structure
+        return filtered_metrics[:min(limit, len(filtered_metrics))]
+
 
 
 def search_line_items(
