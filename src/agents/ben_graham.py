@@ -20,11 +20,7 @@ class BenGrahamSignal(BaseModel):
 
 def ben_graham_agent(state: AgentState):
     """
-    Analyzes stocks using Benjamin Graham's classic value-investing principles:
-    1. Earnings stability over multiple years.
-    2. Solid financial strength (low debt, adequate liquidity).
-    3. Discount to intrinsic value (e.g. Graham Number or net-net).
-    4. Adequate margin of safety.
+    Analyzes stocks using Benjamin Graham's classic value-investing principles.
     """
     data = state["data"]
     end_date = data["end_date"]
@@ -36,7 +32,7 @@ def ben_graham_agent(state: AgentState):
     for ticker in tickers:
         progress.update_status("ben_graham_agent", ticker, "Fetching Ben Graham metrics")
         financial_metrics = ben_graham_metrics(
-            ticker=ticker,  # Pass "RELIANCE" as-is
+            ticker=ticker,
             end_date=end_date,
             period="annual",
             limit=10,
@@ -46,18 +42,16 @@ def ben_graham_agent(state: AgentState):
             progress.update_status("ben_graham_agent", ticker, "Failed: No metrics found")
             continue
 
-        # Use the ticker from financial_metrics, which includes .NS
-        yf_ticker = financial_metrics[0].ticker if financial_metrics else f"{ticker}.NS"
+        yf_ticker = financial_metrics[0].ticker  # Already includes .NS
 
         progress.update_status("ben_graham_agent", ticker, "Getting market cap")
-        stock = yf.Ticker(yf_ticker)
-        price = get_closest_price(ticker, end_date)  # Pass original ticker; .NS added in get_closest_price
-        shares_outstanding = stock.info.get('sharesOutstanding', 0) / 1000000
-        market_cap = price * shares_outstanding if price and shares_outstanding else None
+        price = get_closest_price(ticker, end_date)  # ₹ per share
+        shares_outstanding = financial_metrics[0].outstanding_shares  # Raw shares from yfinance
+        market_cap = price * shares_outstanding if price and shares_outstanding else None  # ₹
 
         if not market_cap and financial_metrics:
             latest_metrics = financial_metrics[0]
-            market_cap = latest_metrics.net_income * 20 if latest_metrics.net_income else None
+            market_cap = latest_metrics.net_income * 20  # ₹ (net_income already in ₹)
 
         if not market_cap:
             progress.update_status("ben_graham_agent", ticker, "Failed: Could not determine market cap")
@@ -93,7 +87,7 @@ def ben_graham_agent(state: AgentState):
 
         progress.update_status("ben_graham_agent", ticker, "Generating Graham-style analysis")
         graham_output = generate_graham_output(
-            ticker=ticker,  # Use original ticker "RELIANCE" for display
+            ticker=ticker,
             analysis_data=analysis_data,
             model_name=state["metadata"]["model_name"],
             model_provider=state["metadata"]["model_provider"],
@@ -147,8 +141,8 @@ def analyze_financial_strength(financial_metrics: List[BenGrahamMetrics]) -> dic
     latest = financial_metrics[0]
 
     if latest.current_liabilities is not None and latest.current_liabilities > 0:
-        current_ratio = latest.current_assets / latest.current_liabilities
-        details.append(f"Current ratio = {current_ratio:.2f} (Assets={latest.current_assets}, Liabilities={latest.current_liabilities})")
+        current_ratio = latest.current_assets / latest.current_liabilities  # ₹ / ₹ = unitless
+        details.append(f"Current ratio = {current_ratio:.2f}")
         if current_ratio >= 2.0:
             score += 2
             details.append("Current ratio >= 2.0.")
@@ -159,7 +153,7 @@ def analyze_financial_strength(financial_metrics: List[BenGrahamMetrics]) -> dic
         details.append("Current liabilities missing or zero.")
 
     if latest.total_assets is not None and latest.total_assets > 0:
-        debt_ratio = latest.total_liabilities / latest.total_assets
+        debt_ratio = latest.total_liabilities / latest.total_assets  # ₹ / ₹ = unitless
         details.append(f"Debt ratio = {debt_ratio:.2f}")
         if debt_ratio < 0.5:
             score += 2
@@ -191,13 +185,13 @@ def analyze_valuation_graham(financial_metrics: List[BenGrahamMetrics], market_c
     details = []
     latest = financial_metrics[0]
 
-    # NCAV Analysis
+    # NCAV Analysis (all in ₹)
     if latest.current_assets is not None and latest.total_liabilities is not None:
         ncav = latest.current_assets - latest.total_liabilities
         if latest.outstanding_shares > 0:
-            ncav_ps = ncav / latest.outstanding_shares
-            price_ps = market_cap / latest.outstanding_shares
-            details.append(f"NCAV = {ncav:,.2f}, NCAV/Share = {ncav_ps:.2f}, Price/Share = {price_ps:.2f}")
+            ncav_ps = ncav / latest.outstanding_shares  # ₹ per share
+            price_ps = market_cap / latest.outstanding_shares  # ₹ per share
+            details.append(f"NCAV = ₹{ncav:,.2f}, NCAV/Share = ₹{ncav_ps:.2f}, Price/Share = ₹{price_ps:.2f}")
             if ncav > market_cap:
                 score += 4
                 details.append("NCAV > Market Cap (strong buy signal).")
@@ -214,11 +208,11 @@ def analyze_valuation_graham(financial_metrics: List[BenGrahamMetrics], market_c
     # Graham Number Analysis
     if latest.earnings_per_share is not None and latest.book_value_per_share is not None:
         if latest.earnings_per_share > 0 and latest.book_value_per_share > 0:
-            graham_number = math.sqrt(22.5 * latest.earnings_per_share * latest.book_value_per_share)
-            current_price = market_cap / latest.outstanding_shares if latest.outstanding_shares > 0 else 0
+            graham_number = math.sqrt(22.5 * latest.earnings_per_share * latest.book_value_per_share)  # ₹ per share
+            current_price = market_cap / latest.outstanding_shares if latest.outstanding_shares > 0 else 0  # ₹ per share
             if current_price > 0:
                 margin_of_safety = (graham_number - current_price) / current_price
-                details.append(f"Graham Number = {graham_number:.2f}, Current Price = {current_price:.2f}, Margin of Safety = {margin_of_safety:.2%}")
+                details.append(f"Graham Number = ₹{graham_number:.2f}, Current Price = ₹{current_price:.2f}, Margin of Safety = {margin_of_safety:.2%}")
                 if margin_of_safety > 0.5:
                     score += 3
                     details.append("Margin of Safety > 50% (undervalued).")

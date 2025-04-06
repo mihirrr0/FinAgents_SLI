@@ -111,24 +111,25 @@ def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker):
     
     dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
     stock = yf.Ticker(ticker)
-    shares_outstanding = stock.info['sharesOutstanding'] / 1000000
+    shares_outstanding = stock.info.get('sharesOutstanding', 0)
+    crore_to_rupee = 10000000
     
     metrics_list = []
     
     for i, date in enumerate(dates):
-        equity = bs_df.loc['Equity Capital'][date]
-        reserves = bs_df.loc['Reserves'][date]
-        borrowings = bs_df.loc['Borrowings\xa0+'][date]
-        other_liab = bs_df.loc['Other Liabilities\xa0+'][date]
-        total_assets = bs_df.loc['Total Assets'][date]
+        equity = bs_df.loc['Equity Capital'][date] * crore_to_rupee
+        reserves = bs_df.loc['Reserves'][date] * crore_to_rupee
+        borrowings = bs_df.loc['Borrowings\xa0+'][date] * crore_to_rupee
+        other_liab = bs_df.loc['Other Liabilities\xa0+'][date] * crore_to_rupee
+        total_assets = bs_df.loc['Total Assets'][date] * crore_to_rupee
         
-        sales = pnl_df.loc['Sales\xa0+'][date]
-        op_profit = pnl_df.loc['Operating Profit'][date]
-        net_profit = pnl_df.loc['Net Profit\xa0+'][date]
+        sales = pnl_df.loc['Sales\xa0+'][date] * crore_to_rupee
+        op_profit = pnl_df.loc['Operating Profit'][date] * crore_to_rupee
+        net_profit = pnl_df.loc['Net Profit\xa0+'][date] * crore_to_rupee
         eps = pnl_df.loc['EPS in Rs'][date]
         
-        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date]
-        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date]
+        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date] * crore_to_rupee
+        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date] * crore_to_rupee
         
         book_value = equity + reserves
         price = get_closest_price(ticker, date)
@@ -136,36 +137,36 @@ def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker):
             market_cap = price * shares_outstanding
         else:
             market_cap = net_profit * 20
-            price = market_cap / shares_outstanding
+            price = market_cap / shares_outstanding if shares_outstanding != 0 else None
         
         pe_ratio = price / eps if eps != 0 else None
-        pb_ratio = price / (book_value / shares_outstanding) if book_value != 0 else None
-        ps_ratio = price / (sales / shares_outstanding) if sales != 0 else None
+        pb_ratio = market_cap / book_value if book_value != 0 else None
+        ps_ratio = market_cap / sales if sales != 0 else None
         
-        op_margin = (op_profit / sales) if sales != 0 else None  # Fixed: No * 100
-        net_margin = (net_profit / sales) if sales != 0 else None  # Fixed: No * 100
-        roe = (net_profit / book_value) if book_value != 0 else None  # Fixed: No * 100
+        op_margin = op_profit / sales if sales != 0 else None
+        net_margin = net_profit / sales if sales != 0 else None
+        roe = net_profit / book_value if book_value != 0 else None
         
         rev_growth = None
         earn_growth = None
         bv_growth = None
         if i > 0:
             prev_date = dates[i-1]
-            prev_sales = pnl_df.loc['Sales\xa0+'][prev_date]
-            prev_profit = pnl_df.loc['Net Profit\xa0+'][prev_date]
-            prev_bv = bs_df.loc['Equity Capital'][prev_date] + bs_df.loc['Reserves'][prev_date]
+            prev_sales = pnl_df.loc['Sales\xa0+'][prev_date] * crore_to_rupee
+            prev_profit = pnl_df.loc['Net Profit\xa0+'][prev_date] * crore_to_rupee
+            prev_bv = (bs_df.loc['Equity Capital'][prev_date] + bs_df.loc['Reserves'][prev_date]) * crore_to_rupee
             prev_price = get_closest_price(ticker, prev_date)
             if prev_price is not None:
                 market_cap_prev = prev_price * shares_outstanding
             else:
                 market_cap_prev = prev_profit * 20
-                prev_price = market_cap_prev / shares_outstanding
+                prev_price = market_cap_prev / shares_outstanding if shares_outstanding != 0 else None
             
-            rev_growth = ((sales - prev_sales) / prev_sales) if prev_sales != 0 else None  # Fixed: No * 100
-            earn_growth = ((net_profit - prev_profit) / prev_profit) if prev_profit != 0 else None  # Fixed: No * 100
-            bv_growth = ((book_value - prev_bv) / prev_bv) if prev_bv != 0 else None  # Fixed: No * 100
+            rev_growth = (sales - prev_sales) / prev_sales if prev_sales != 0 else None
+            earn_growth = (net_profit - prev_profit) / prev_profit if prev_profit != 0 else None
+            bv_growth = (book_value - prev_bv) / prev_bv if prev_bv != 0 else None
         
-        current_assets = bs_df.loc['Other Assets\xa0+'][date]
+        current_assets = bs_df.loc['Other Assets\xa0+'][date] * crore_to_rupee
         current_liab = other_liab
         current_ratio = current_assets / current_liab if current_liab != 0 else None
         
@@ -195,7 +196,6 @@ def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker):
     
     return FinancialMetricsResponse(financial_metrics=metrics_list)
 
-# Modified get_financial_metrics function for Indian stocks
 def get_financial_metrics(
     ticker: str,
     end_date: str,
@@ -203,48 +203,8 @@ def get_financial_metrics(
     limit: int = 10,
 ) -> List[FinancialMetrics]:
     """Fetch financial metrics for Indian stocks using local CSV data and Yahoo Finance."""
-    # Load CSV data (assuming files are named consistently with ticker)
-    try:
-        bs_df = pd.read_csv(f'src/tools/financial_data/{ticker}_BS.csv', index_col=0)
-        cf_df = pd.read_csv(f'src/tools/financial_data/{ticker}_CF.csv', index_col=0)
-        pnl_df = pd.read_csv(f'src/tools/financial_data/{ticker}_PNL.csv', index_col=0)
-    except FileNotFoundError as e:
-        print(f"Error: CSV files for {ticker} not found - {e}")
-        return []
-    
-    if not ticker.endswith('.NS'):
-        ticker = f"{ticker}.NS"
-
-    # Calculate metrics
-    metrics_response = calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker)
-    financial_metrics = metrics_response.financial_metrics
-
-    if not financial_metrics:
-        return []
-
-    # Filter by end_date and limit
-    end_date_dt = pd.to_datetime(end_date)
-    filtered_metrics = [m for m in financial_metrics if pd.to_datetime(m.report_period) <= end_date_dt]
-    filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
-    
-    # Handle period (currently only annual data, TTM not directly supported)
-    if period.lower() == "ttm":
-        # For TTM, take the most recent period as an approximation
-        return filtered_metrics[:min(limit, len(filtered_metrics))]
-    else:
-        # Assume annual data as per CSV structure
-        return filtered_metrics[:min(limit, len(filtered_metrics))]
-
-def ben_graham_metrics(
-    ticker: str,
-    end_date: str,
-    period: str = "annual",
-    limit: int = 10,
-) -> List[BenGrahamMetrics]:
-    """Fetch Ben Graham-specific metrics for Indian stocks using local CSV data and Yahoo Finance."""
-    # Use ticker without .NS for CSV, add .NS for Yahoo Finance and output
-    csv_ticker = ticker.split('.NS')[0]  # Strip .NS if present for CSV lookup
-    yf_ticker = f"{csv_ticker}.NS"  # Always use .NS for Yahoo Finance and output
+    csv_ticker = ticker.split('.NS')[0]
+    yf_ticker = f"{csv_ticker}.NS"
 
     try:
         bs_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_BS.csv', index_col=0)
@@ -253,47 +213,75 @@ def ben_graham_metrics(
     except FileNotFoundError as e:
         print(f"Error: CSV files for {csv_ticker} not found - {e}")
         return []
-    
+
+    metrics_response = calculate_financial_metrics(bs_df, cf_df, pnl_df, yf_ticker)
+    financial_metrics = metrics_response.financial_metrics
+
+    if not financial_metrics:
+        return []
+
+    end_date_dt = pd.to_datetime(end_date)
+    filtered_metrics = [m for m in financial_metrics if pd.to_datetime(m.report_period) <= end_date_dt]
+    filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
+
+    return filtered_metrics[:min(limit, len(filtered_metrics))]
+
+def ben_graham_metrics(
+    ticker: str,
+    end_date: str,
+    period: str = "annual",
+    limit: int = 10,
+) -> List[BenGrahamMetrics]:
+    """Fetch Ben Graham-specific metrics for Indian stocks using local CSV data and Yahoo Finance."""
+    csv_ticker = ticker.split('.NS')[0]  # Strip .NS for CSV lookup
+    yf_ticker = f"{csv_ticker}.NS"  # Use .NS for Yahoo Finance and output
+
+    try:
+        bs_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_BS.csv', index_col=0)
+        cf_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_CF.csv', index_col=0)
+        pnl_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_PNL.csv', index_col=0)
+    except FileNotFoundError as e:
+        print(f"Error: CSV files for {csv_ticker} not found - {e}")
+        return []
+
     for df in [bs_df, cf_df, pnl_df]:
         for col in df.columns:
             df[col] = df[col].apply(clean_numeric)
-    
+
     dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
     stock = yf.Ticker(yf_ticker)
-    shares_outstanding = stock.info.get('sharesOutstanding', 0) / 1000000
-    
+    shares_outstanding = stock.info.get('sharesOutstanding', 0)  # Raw shares in units
+
     if shares_outstanding == 0:
         print(f"Warning: No shares outstanding data for {yf_ticker}")
         return []
 
     metrics_list = []
-    
-    for date in dates:
-        equity = bs_df.loc['Equity Capital'][date]
-        reserves = bs_df.loc['Reserves'][date]
-        total_assets = bs_df.loc['Total Assets'][date]
-        total_liabilities = bs_df.loc['Borrowings\xa0+'][date] + bs_df.loc['Other Liabilities\xa0+'][date]
-        current_assets = bs_df.loc['Other Assets\xa0+'][date]
-        current_liabilities = bs_df.loc['Other Liabilities\xa0+'][date]
-        
-        revenue = pnl_df.loc['Sales\xa0+'][date]
-        net_income = pnl_df.loc['Net Profit\xa0+'][date]
-        eps = pnl_df.loc['EPS in Rs'][date]
-        
-        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date]
-        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date]
-        cash_fin = cf_df.loc['Cash from Financing Activity\xa0+'][date]
-        dividends_per_share = None
-        if cash_fin < 0:
-            dividends_per_share = abs(cash_fin) / shares_outstanding
+    crore_to_rupee = 10000000  # 1 Cr = 10^7 INR
 
-        book_value = equity + reserves
-        book_value_per_share = book_value / shares_outstanding if shares_outstanding != 0 else None
+    for date in dates:
+        equity = bs_df.loc['Equity Capital'][date] * crore_to_rupee  # Convert to ₹
+        reserves = bs_df.loc['Reserves'][date] * crore_to_rupee
+        total_assets = bs_df.loc['Total Assets'][date] * crore_to_rupee
+        total_liabilities = (bs_df.loc['Borrowings\xa0+'][date] + bs_df.loc['Other Liabilities\xa0+'][date]) * crore_to_rupee
+        current_assets = bs_df.loc['Other Assets\xa0+'][date] * crore_to_rupee
+        current_liabilities = bs_df.loc['Other Liabilities\xa0+'][date] * crore_to_rupee
+
+        revenue = pnl_df.loc['Sales\xa0+'][date] * crore_to_rupee
+        net_income = pnl_df.loc['Net Profit\xa0+'][date] * crore_to_rupee
+        eps = pnl_df.loc['EPS in Rs'][date]  # Already in ₹ per share
+
+        cash_fin = cf_df.loc['Cash from Financing Activity\xa0+'][date] * crore_to_rupee
+        dividends_per_share = abs(cash_fin) / shares_outstanding if cash_fin < 0 else None  # ₹ per share
+
+        book_value = equity + reserves  # In ₹
+        book_value_per_share = book_value / shares_outstanding if shares_outstanding != 0 else None  # ₹ per share
+
         if book_value_per_share is not None and book_value_per_share < 0:
             print(f"Warning: Negative book value per share for {yf_ticker} on {date}: {book_value_per_share}")
 
         metrics = BenGrahamMetrics(
-            ticker=yf_ticker,  # Use .NS version consistently in output
+            ticker=yf_ticker,
             report_period=date,
             earnings_per_share=eps,
             revenue=revenue,
@@ -307,11 +295,11 @@ def ben_graham_metrics(
             outstanding_shares=shares_outstanding
         )
         metrics_list.append(metrics)
-    
+
     end_date_dt = pd.to_datetime(end_date)
     filtered_metrics = [m for m in metrics_list if pd.to_datetime(m.report_period) <= end_date_dt]
     filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
-    
+
     return filtered_metrics[:min(limit, len(filtered_metrics))]
 
 
