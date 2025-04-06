@@ -14,6 +14,8 @@ from data.models import (
     LineItemResponse,
     InsiderTrade,
     InsiderTradeResponse,
+    BenGrahamMetrics,
+    BenGrahamMetricsResponse,
 )
 from typing import List
 import numpy as np
@@ -83,7 +85,10 @@ def clean_numeric(value):
     return float(value) if value is not None else None
 
 # Fetch historical price from Yahoo Finance for a specific date
-def get_closest_price(ticker, date_str):
+def get_closest_price(ticker: str, date_str: str) -> float:
+    """Fetch the closest stock price for the given ticker and date, ensuring .NS suffix."""
+    if not ticker.endswith('.NS'):
+        ticker = f"{ticker}.NS"  # Add .NS for Yahoo Finance if not present
     stock = yf.Ticker(ticker)
     date = pd.to_datetime(date_str).tz_localize('UTC')
     start_date = date - timedelta(days=5)
@@ -92,6 +97,7 @@ def get_closest_price(ticker, date_str):
     if not hist.empty:
         idx = np.abs((hist.index - date).days).argmin()
         return hist['Close'].iloc[idx]
+    print(f"Warning: No price data found for {ticker} around {date_str}")
     return None
 
 # Calculate financial metrics from CSV data
@@ -226,7 +232,84 @@ def get_financial_metrics(
         # Assume annual data as per CSV structure
         return filtered_metrics[:min(limit, len(filtered_metrics))]
 
+def ben_graham_metrics(
+    ticker: str,
+    end_date: str,
+    period: str = "annual",
+    limit: int = 10,
+) -> List[BenGrahamMetrics]:
+    """Fetch Ben Graham-specific metrics for Indian stocks using local CSV data and Yahoo Finance."""
+    # Use ticker without .NS for CSV, add .NS for Yahoo Finance and output
+    csv_ticker = ticker.split('.NS')[0]  # Strip .NS if present for CSV lookup
+    yf_ticker = f"{csv_ticker}.NS"  # Always use .NS for Yahoo Finance and output
 
+    try:
+        bs_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_BS.csv', index_col=0)
+        cf_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_CF.csv', index_col=0)
+        pnl_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_PNL.csv', index_col=0)
+    except FileNotFoundError as e:
+        print(f"Error: CSV files for {csv_ticker} not found - {e}")
+        return []
+    
+    for df in [bs_df, cf_df, pnl_df]:
+        for col in df.columns:
+            df[col] = df[col].apply(clean_numeric)
+    
+    dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
+    stock = yf.Ticker(yf_ticker)
+    shares_outstanding = stock.info.get('sharesOutstanding', 0) / 1000000
+    
+    if shares_outstanding == 0:
+        print(f"Warning: No shares outstanding data for {yf_ticker}")
+        return []
+
+    metrics_list = []
+    
+    for date in dates:
+        equity = bs_df.loc['Equity Capital'][date]
+        reserves = bs_df.loc['Reserves'][date]
+        total_assets = bs_df.loc['Total Assets'][date]
+        total_liabilities = bs_df.loc['Borrowings\xa0+'][date] + bs_df.loc['Other Liabilities\xa0+'][date]
+        current_assets = bs_df.loc['Other Assets\xa0+'][date]
+        current_liabilities = bs_df.loc['Other Liabilities\xa0+'][date]
+        
+        revenue = pnl_df.loc['Sales\xa0+'][date]
+        net_income = pnl_df.loc['Net Profit\xa0+'][date]
+        eps = pnl_df.loc['EPS in Rs'][date]
+        
+        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date]
+        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date]
+        cash_fin = cf_df.loc['Cash from Financing Activity\xa0+'][date]
+        dividends_per_share = None
+        if cash_fin < 0:
+            dividends_per_share = abs(cash_fin) / shares_outstanding
+
+        book_value = equity + reserves
+        book_value_per_share = book_value / shares_outstanding if shares_outstanding != 0 else None
+        if book_value_per_share is not None and book_value_per_share < 0:
+            print(f"Warning: Negative book value per share for {yf_ticker} on {date}: {book_value_per_share}")
+
+        metrics = BenGrahamMetrics(
+            ticker=yf_ticker,  # Use .NS version consistently in output
+            report_period=date,
+            earnings_per_share=eps,
+            revenue=revenue,
+            net_income=net_income,
+            book_value_per_share=book_value_per_share,
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            current_assets=current_assets,
+            current_liabilities=current_liabilities,
+            dividends_per_share=dividends_per_share,
+            outstanding_shares=shares_outstanding
+        )
+        metrics_list.append(metrics)
+    
+    end_date_dt = pd.to_datetime(end_date)
+    filtered_metrics = [m for m in metrics_list if pd.to_datetime(m.report_period) <= end_date_dt]
+    filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
+    
+    return filtered_metrics[:min(limit, len(filtered_metrics))]
 
 def search_line_items(
     ticker: str,

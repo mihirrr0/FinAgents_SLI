@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-
+from typing import Optional
 
 class Price(BaseModel):
     open: float
@@ -37,6 +37,22 @@ class FinancialMetrics(BaseModel):
 class FinancialMetricsResponse(BaseModel):
     financial_metrics: list[FinancialMetrics]
 
+class BenGrahamMetrics(BaseModel):
+    ticker: str
+    report_period: str
+    earnings_per_share: Optional[float] = None
+    revenue: Optional[float] = None
+    net_income: Optional[float] = None
+    book_value_per_share: Optional[float] = None
+    total_assets: Optional[float] = None
+    total_liabilities: Optional[float] = None
+    current_assets: Optional[float] = None
+    current_liabilities: Optional[float] = None
+    dividends_per_share: Optional[float] = None
+    outstanding_shares: Optional[float] = None
+
+class BenGrahamMetricsResponse(BaseModel):
+    metrics: list[BenGrahamMetrics]
 
 class LineItem(BaseModel):
     ticker: str
