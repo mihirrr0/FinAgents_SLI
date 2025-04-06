@@ -27,14 +27,14 @@ ANALYST_CONFIG = {
         "agent_func": fundamentals_agent,
         "order": 2,
     },
-    "sentiment_analyst": {
-        "display_name": "Sentiment Analyst",
-        "agent_func": sentiment_agent,
-        "order": 3,
-    },
     "valuation_analyst": {
         "display_name": "Valuation Analyst",
         "agent_func": valuation_agent,
+        "order": 3,
+    },
+    "warren_buffett": {
+        "display_name": "Warren Buffett",
+        "agent_func": warren_buffett_agent,
         "order": 4,
     },
 }

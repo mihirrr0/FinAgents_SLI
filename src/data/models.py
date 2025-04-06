@@ -73,6 +73,25 @@ class ValuationMetrics(BaseModel):
 class ValuationMetricsResponse(BaseModel):
     metrics: List[ValuationMetrics]
 
+class BuffettFinancialMetrics(BaseModel):
+    ticker: str
+    report_period: str
+    return_on_equity: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+    operating_margin: Optional[float] = None
+    current_ratio: Optional[float] = None
+    net_income: Optional[float] = None  # ₹
+    total_assets: Optional[float] = None  # ₹
+    total_liabilities: Optional[float] = None  # ₹
+    capital_expenditure: Optional[float] = None  # ₹ (proxy from cash flow)
+    depreciation_and_amortization: Optional[float] = None  # ₹ (placeholder)
+    outstanding_shares: Optional[int] = None  # Raw shares
+    market_cap: Optional[float] = None  # ₹
+    earnings_per_share: Optional[float] = None  # ₹ per share
+
+class BuffettFinancialMetricsResponse(BaseModel):
+    financial_metrics: List[BuffettFinancialMetrics]
+
 class LineItem(BaseModel):
     ticker: str
     report_period: str

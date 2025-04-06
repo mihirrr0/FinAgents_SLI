@@ -19,6 +19,8 @@ from data.models import (
     ValuationLineItem,
     ValuationMetrics,
     ValuationMetricsResponse,
+    BuffettFinancialMetrics,
+    BuffettFinancialMetricsResponse,
 )
 from typing import List
 import numpy as np
@@ -102,6 +104,95 @@ def get_closest_price(ticker: str, date_str: str) -> float:
         return hist['Close'].iloc[idx]
     print(f"Warning: No price data found for {ticker} around {date_str}")
     return None
+
+def buffett_metrics(
+    ticker: str,
+    end_date: str,
+    period: str = "annual",
+    limit: int = 5,
+) -> List[BuffettFinancialMetrics]:
+    """Fetch financial metrics tailored for Warren Buffett's analysis from CSV data and Yahoo Finance."""
+    csv_ticker = ticker.split('.NS')[0]  # Strip .NS for CSV lookup
+    yf_ticker = f"{csv_ticker}.NS"  # Use .NS for Yahoo Finance
+
+    try:
+        bs_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_BS.csv', index_col=0)
+        cf_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_CF.csv', index_col=0)
+        pnl_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_PNL.csv', index_col=0)
+    except FileNotFoundError as e:
+        print(f"Error: CSV files for {csv_ticker} not found - {e}")
+        return []
+
+    # Clean numeric values in dataframes
+    for df in [bs_df, cf_df, pnl_df]:
+        for col in df.columns:
+            df[col] = df[col].apply(clean_numeric)
+
+    # Get common dates across all statements
+    dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
+    stock = yf.Ticker(yf_ticker)
+    shares_outstanding = stock.info.get('sharesOutstanding', 0)  # Raw shares in units
+    crore_to_rupee = 10000000  # 1 Cr = 10^7 INR
+
+    if shares_outstanding == 0:
+        print(f"Warning: No shares outstanding data for {yf_ticker}")
+        return []
+
+    metrics_list = []
+
+    for date in dates:
+        # Convert financials from ₹ Cr to ₹
+        equity = (bs_df.loc['Equity Capital'][date] + bs_df.loc['Reserves'][date]) * crore_to_rupee
+        total_assets = bs_df.loc['Total Assets'][date] * crore_to_rupee
+        total_liabilities = (bs_df.loc['Borrowings\xa0+'][date] + bs_df.loc['Other Liabilities\xa0+'][date]) * crore_to_rupee
+        current_assets = bs_df.loc['Other Assets\xa0+'][date] * crore_to_rupee
+        current_liabilities = bs_df.loc['Other Liabilities\xa0+'][date] * crore_to_rupee
+        borrowings = bs_df.loc['Borrowings\xa0+'][date] * crore_to_rupee
+
+        net_income = pnl_df.loc['Net Profit\xa0+'][date] * crore_to_rupee
+        operating_profit = pnl_df.loc['Operating Profit'][date] * crore_to_rupee
+        sales = pnl_df.loc['Sales\xa0+'][date] * crore_to_rupee
+        eps = pnl_df.loc['EPS in Rs'][date]  # Already in ₹ per share
+
+        cash_op = cf_df.loc['Cash from Operating Activity\xa0+'][date] * crore_to_rupee
+        cash_inv = cf_df.loc['Cash from Investing Activity\xa0+'][date] * crore_to_rupee
+        depreciation = None  # Not directly available; could estimate if needed
+        capex = abs(cash_inv) if cash_inv < 0 else None  # Negative cash flow from investing as proxy for capex
+
+        # Calculate derived metrics
+        roe = net_income / equity if equity != 0 else None
+        debt_to_equity = borrowings / equity if equity != 0 else None
+        operating_margin = operating_profit / sales if sales != 0 else None
+        current_ratio = current_assets / current_liabilities if current_liabilities != 0 else None
+
+        price = get_closest_price(yf_ticker, date)  # ₹ per share
+        market_cap = price * shares_outstanding if price else None  # ₹
+
+        metrics = BuffettFinancialMetrics(
+            ticker=yf_ticker,
+            report_period=date,
+            return_on_equity=roe,
+            debt_to_equity=debt_to_equity,
+            operating_margin=operating_margin,
+            current_ratio=current_ratio,
+            net_income=net_income,
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            capital_expenditure=capex,
+            depreciation_and_amortization=depreciation,
+            outstanding_shares=shares_outstanding,
+            market_cap=market_cap,
+            earnings_per_share=eps,
+        )
+        metrics_list.append(metrics)
+
+    # Filter and sort by date
+    end_date_dt = pd.to_datetime(end_date)
+    filtered_metrics = [m for m in metrics_list if pd.to_datetime(m.report_period) <= end_date_dt]
+    filtered_metrics.sort(key=lambda x: x.report_period, reverse=True)
+
+    return filtered_metrics[:min(limit, len(filtered_metrics))]
+
 
 # Calculate financial metrics from CSV data
 def calculate_financial_metrics(bs_df, cf_df, pnl_df, ticker):
