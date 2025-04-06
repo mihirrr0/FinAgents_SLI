@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 class Price(BaseModel):
     open: float
@@ -53,6 +53,25 @@ class BenGrahamMetrics(BaseModel):
 
 class BenGrahamMetricsResponse(BaseModel):
     metrics: list[BenGrahamMetrics]
+
+
+class ValuationLineItem(BaseModel):
+    ticker: str
+    report_period: str
+    free_cash_flow: Optional[float] = None
+    net_income: Optional[float] = None
+    depreciation_and_amortization: Optional[float] = None
+    capital_expenditure: Optional[float] = None
+    working_capital: Optional[float] = None
+
+class ValuationMetrics(BaseModel):
+    ticker: str
+    report_period: str  # TTM or specific period
+    earnings_growth: Optional[float] = None
+    line_items: List[ValuationLineItem]  # List of periods (e.g., current and previous)
+
+class ValuationMetricsResponse(BaseModel):
+    metrics: List[ValuationMetrics]
 
 class LineItem(BaseModel):
     ticker: str

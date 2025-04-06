@@ -16,6 +16,9 @@ from data.models import (
     InsiderTradeResponse,
     BenGrahamMetrics,
     BenGrahamMetricsResponse,
+    ValuationLineItem,
+    ValuationMetrics,
+    ValuationMetricsResponse,
 )
 from typing import List
 import numpy as np
@@ -311,6 +314,84 @@ def ben_graham_metrics(
     
     return filtered_metrics[:min(limit, len(filtered_metrics))]
 
+
+def valuation_metrics(
+    ticker: str,
+    end_date: str,
+    period: str = "ttm",
+    limit: int = 2,  # Need current and previous period for working capital change
+) -> List[ValuationMetrics]:
+    """Fetch valuation-specific metrics for the given ticker using local CSV data and Yahoo Finance."""
+    # Use ticker without .NS for CSV, add .NS for Yahoo Finance and output
+    csv_ticker = ticker.split('.NS')[0]
+    yf_ticker = f"{csv_ticker}.NS"
+
+    try:
+        bs_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_BS.csv', index_col=0)
+        cf_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_CF.csv', index_col=0)
+        pnl_df = pd.read_csv(f'src/tools/financial_data/{csv_ticker}_PNL.csv', index_col=0)
+    except FileNotFoundError as e:
+        print(f"Error: CSV files for {csv_ticker} not found - {e}")
+        return []
+
+    # Clean numeric data
+    for df in [bs_df, cf_df, pnl_df]:
+        for col in df.columns:
+            df[col] = df[col].apply(clean_numeric)
+
+    # Get common dates across all statements
+    dates = sorted(set(bs_df.columns) & set(cf_df.columns) & set(pnl_df.columns))
+    if not dates:
+        print(f"Error: No overlapping dates found for {csv_ticker}")
+        return []
+
+    # Filter dates up to end_date
+    end_date_dt = pd.to_datetime(end_date)
+    filtered_dates = [d for d in dates if pd.to_datetime(d) <= end_date_dt]
+    filtered_dates.sort(reverse=True)
+    if len(filtered_dates) < limit:
+        print(f"Warning: Insufficient periods for {csv_ticker}; found {len(filtered_dates)}, need {limit}")
+        return []
+
+    # Fetch earnings growth (approximate from net income growth over available periods)
+    net_incomes = [pnl_df.loc['Net Profit\xa0+'][d] for d in filtered_dates[:limit] if 'Net Profit\xa0+' in pnl_df.index]
+    earnings_growth = None
+    if len(net_incomes) >= 2 and net_incomes[1] != 0:
+        earnings_growth = (net_incomes[0] - net_incomes[1]) / abs(net_incomes[1])
+
+    # Collect line items for the latest two periods
+    line_items = []
+    for date in filtered_dates[:limit]:
+        net_income = pnl_df.loc['Net Profit\xa0+'][date] if 'Net Profit\xa0+' in pnl_df.index else None
+        depreciation = cf_df.loc['Depreciation'][date] if 'Depreciation' in cf_df.index else None
+        capex = abs(cf_df.loc['Cash from Investing Activity\xa0+'][date]) if 'Cash from Investing Activity\xa0+' in cf_df.index else None
+        free_cash_flow = cf_df.loc['Cash from Operating Activity\xa0+'][date] - capex if 'Cash from Operating Activity\xa0+' in cf_df.index and capex else None
+        current_assets = bs_df.loc['Other Assets\xa0+'][date] if 'Other Assets\xa0+' in bs_df.index else None
+        current_liabilities = bs_df.loc['Other Liabilities\xa0+'][date] if 'Other Liabilities\xa0+' in bs_df.index else None
+        working_capital = current_assets - current_liabilities if current_assets is not None and current_liabilities is not None else None
+
+        line_item = ValuationLineItem(
+            ticker=yf_ticker,
+            report_period=date,
+            free_cash_flow=free_cash_flow,
+            net_income=net_income,
+            depreciation_and_amortization=depreciation,
+            capital_expenditure=capex,
+            working_capital=working_capital,
+        )
+        line_items.append(line_item)
+
+    # Create ValuationMetrics object
+    metrics = ValuationMetrics(
+        ticker=yf_ticker,
+        report_period="ttm" if period == "ttm" else filtered_dates[0],
+        earnings_growth=earnings_growth,
+        line_items=line_items,
+    )
+
+    return [metrics]  # Return as a list for consistency with other functions
+
+
 def search_line_items(
     ticker: str,
     line_items: list[str],
@@ -473,16 +554,15 @@ def get_company_news(
 
 
 
-def get_market_cap(
-    ticker: str,
-    end_date: str,
-) -> float | None:
-    """Fetch market cap from the API."""
-    financial_metrics = get_financial_metrics(ticker, end_date)
-    market_cap = financial_metrics[0].market_cap
-    if not market_cap:
-        return None
-
+def get_market_cap(ticker: str, end_date: str) -> float:
+    """Fetch market cap for the given ticker and date in rupees."""
+    if not ticker.endswith('.NS'):
+        ticker = f"{ticker}.NS"
+    stock = yf.Ticker(ticker)
+    price = get_closest_price(ticker, end_date)  # INR per share
+    shares_outstanding = stock.info.get('sharesOutstanding', 0)  # Units (not millions)
+    market_cap = price * shares_outstanding if price and shares_outstanding else None
+    
     return market_cap
 
 
