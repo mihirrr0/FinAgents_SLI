@@ -50,6 +50,7 @@ class BenGrahamMetrics(BaseModel):
     current_liabilities: Optional[float] = None
     dividends_per_share: Optional[float] = None
     outstanding_shares: Optional[float] = None
+    depreciation: Optional[float] = None
 
 class BenGrahamMetricsResponse(BaseModel):
     metrics: list[BenGrahamMetrics]

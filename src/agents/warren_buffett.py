@@ -165,7 +165,6 @@ def analyze_consistency(metrics: List[BuffettFinancialMetrics]) -> dict[str, any
     return {"score": score, "details": "; ".join(reasoning)}
 
 def calculate_owner_earnings(metrics: List[BuffettFinancialMetrics]) -> dict[str, any]:
-    """Calculate owner earnings: Net Income + Depreciation - Maintenance CapEx."""
     if not metrics or len(metrics) < 1:
         return {"owner_earnings": None, "details": ["Insufficient data for owner earnings calculation"]}
 
@@ -174,12 +173,10 @@ def calculate_owner_earnings(metrics: List[BuffettFinancialMetrics]) -> dict[str
     depreciation = latest.depreciation_and_amortization
     capex = latest.capital_expenditure
 
-    if not all([net_income, capex]):  # Depreciation is optional since it's not in CSV
+    if not all([net_income, depreciation, capex]):  # All required now
         return {"owner_earnings": None, "details": ["Missing components for owner earnings calculation"]}
 
-    # Use 0 for depreciation if unavailable
-    depreciation = depreciation if depreciation is not None else 0
-    maintenance_capex = capex * 0.75  # Estimate as 75% of total capex
+    maintenance_capex = capex * 0.75
     owner_earnings = net_income + depreciation - maintenance_capex
 
     return {
