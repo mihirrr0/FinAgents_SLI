@@ -127,27 +127,26 @@ def print_backtest_results(table_rows: list) -> None:
     summary_rows = []
 
     for row in table_rows:
-        if isinstance(row[1], str) and "PORTFOLIO SUMMARY" in row[1]:
+        if row[1].startswith(f"{Fore.WHITE}{Style.BRIGHT}PORTFOLIO SUMMARY"):
             summary_rows.append(row)
         else:
             ticker_rows.append(row)
 
-    
     # Display latest portfolio summary
     if summary_rows:
         latest_summary = summary_rows[-1]
         print(f"\n{Fore.WHITE}{Style.BRIGHT}PORTFOLIO SUMMARY:{Style.RESET_ALL}")
 
         # Extract values and remove commas before converting to float
-        cash_str = latest_summary[7].split("$")[1].split(Style.RESET_ALL)[0].replace(",", "")
-        position_str = latest_summary[6].split("$")[1].split(Style.RESET_ALL)[0].replace(",", "")
-        total_str = latest_summary[8].split("$")[1].split(Style.RESET_ALL)[0].replace(",", "")
+        cash_str = latest_summary[7].split("₹")[1].split(Style.RESET_ALL)[0].replace(",", "")
+        position_str = latest_summary[6].split("₹")[1].split(Style.RESET_ALL)[0].replace(",", "")
+        total_str = latest_summary[8].split("₹")[1].split(Style.RESET_ALL)[0].replace(",", "")
 
-        print(f"Cash Balance: {Fore.CYAN}${float(cash_str):,.2f}{Style.RESET_ALL}")
-        print(f"Total Position Value: {Fore.YELLOW}${float(position_str):,.2f}{Style.RESET_ALL}")
-        print(f"Total Value: {Fore.WHITE}${float(total_str):,.2f}{Style.RESET_ALL}")
+        print(f"Cash Balance: {Fore.CYAN}₹{float(cash_str):,.2f}{Style.RESET_ALL}")
+        print(f"Total Position Value: {Fore.YELLOW}₹{float(position_str):,.2f}{Style.RESET_ALL}")
+        print(f"Total Value: {Fore.WHITE}₹{float(total_str):,.2f}{Style.RESET_ALL}")
         print(f"Return: {latest_summary[9]}")
-        
+
         # Display performance metrics if available
         if latest_summary[10]:  # Sharpe ratio
             print(f"Sharpe Ratio: {latest_summary[10]}")
@@ -234,9 +233,9 @@ def format_backtest_row(
             "",  # Quantity
             "",  # Price
             "",  # Shares
-            f"{Fore.YELLOW}${total_position_value:,.2f}{Style.RESET_ALL}",  # Total Position Value
-            f"{Fore.CYAN}${cash_balance:,.2f}{Style.RESET_ALL}",  # Cash Balance
-            f"{Fore.WHITE}${total_value:,.2f}{Style.RESET_ALL}",  # Total Value
+            f"{Fore.YELLOW}₹{total_position_value:,.2f}{Style.RESET_ALL}",  # Total Position Value
+            f"{Fore.CYAN}₹{cash_balance:,.2f}{Style.RESET_ALL}",  # Cash Balance
+            f"{Fore.WHITE}₹{total_value:,.2f}{Style.RESET_ALL}",  # Total Value
             f"{return_color}{return_pct:+.2f}%{Style.RESET_ALL}",  # Return
             f"{Fore.YELLOW}{sharpe_ratio:.2f}{Style.RESET_ALL}" if sharpe_ratio is not None else "",  # Sharpe Ratio
             f"{Fore.YELLOW}{sortino_ratio:.2f}{Style.RESET_ALL}" if sortino_ratio is not None else "",  # Sortino Ratio
@@ -248,9 +247,9 @@ def format_backtest_row(
             f"{Fore.CYAN}{ticker}{Style.RESET_ALL}",
             f"{action_color}{action.upper()}{Style.RESET_ALL}",
             f"{action_color}{quantity:,.0f}{Style.RESET_ALL}",
-            f"{Fore.WHITE}{price:,.2f}{Style.RESET_ALL}",
+            f"{Fore.WHITE}₹{price:,.2f}{Style.RESET_ALL}",
             f"{Fore.WHITE}{shares_owned:,.0f}{Style.RESET_ALL}",
-            f"{Fore.YELLOW}{position_value:,.2f}{Style.RESET_ALL}",
+            f"{Fore.YELLOW}₹{position_value:,.2f}{Style.RESET_ALL}",
             f"{Fore.GREEN}{bullish_count}{Style.RESET_ALL}",
             f"{Fore.RED}{bearish_count}{Style.RESET_ALL}",
             f"{Fore.BLUE}{neutral_count}{Style.RESET_ALL}",

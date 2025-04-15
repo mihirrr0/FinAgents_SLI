@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
-from tools.api import buffett_metrics  # Updated import
+from tools.api import buffett_metrics
 from utils.llm import call_llm
 from utils.progress import progress
 from data.models import BuffettFinancialMetrics
@@ -30,23 +30,38 @@ def warren_buffett_agent(state: AgentState):
 
         if not metrics:
             progress.update_status("warren_buffett_agent", ticker, "Failed: No metrics found")
+            analysis_data[ticker] = {
+                "signal": "neutral",
+                "score": 0,
+                "max_score": 10,
+                "fundamental_analysis": {"score": 0, "details": "No metrics available"},
+                "consistency_analysis": {"score": 0, "details": "No metrics available"},
+                "intrinsic_value_analysis": {"intrinsic_value": None, "details": ["No metrics available"]},
+                "market_cap": None,
+                "margin_of_safety": None,
+            }
+            buffett_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0.0,
+                "reasoning": "No financial metrics available for analysis.",
+            }
             continue
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing fundamentals")
         fundamental_analysis = analyze_fundamentals(metrics)
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing consistency")
-        consistency_analysis = analyze_consistency(metrics)  # Now uses metrics directly
+        consistency_analysis = analyze_consistency(metrics)
 
         progress.update_status("warren_buffett_agent", ticker, "Calculating intrinsic value")
-        intrinsic_value_analysis = calculate_intrinsic_value(metrics)  # Now uses metrics directly
+        intrinsic_value_analysis = calculate_intrinsic_value(metrics)
 
         total_score = fundamental_analysis["score"] + consistency_analysis["score"]
         max_possible_score = 10
 
         margin_of_safety = None
-        intrinsic_value = intrinsic_value_analysis["intrinsic_value"]
-        market_cap = metrics[0].market_cap  # Get from latest metrics
+        intrinsic_value = intrinsic_value_analysis.get("intrinsic_value")
+        market_cap = metrics[0].market_cap if metrics and metrics[0].market_cap else None
         if intrinsic_value and market_cap:
             margin_of_safety = (intrinsic_value - market_cap) / market_cap
             if margin_of_safety > 0.3:
@@ -99,45 +114,49 @@ def warren_buffett_agent(state: AgentState):
 def analyze_fundamentals(metrics: List[BuffettFinancialMetrics]) -> dict[str, any]:
     """Analyze company fundamentals based on Buffett's criteria."""
     if not metrics:
-        return {"score": 0, "details": "Insufficient fundamental data"}
+        return {"score": 0, "details": "Insufficient fundamental data", "metrics": {}}
 
     latest_metrics = metrics[0]
     score = 0
     reasoning = []
 
-    if latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
+    if latest_metrics.return_on_equity is not None and latest_metrics.return_on_equity > 0.15:
         score += 2
         reasoning.append(f"Strong ROE of {latest_metrics.return_on_equity:.1%}")
-    elif latest_metrics.return_on_equity:
+    elif latest_metrics.return_on_equity is not None:
         reasoning.append(f"Weak ROE of {latest_metrics.return_on_equity:.1%}")
     else:
         reasoning.append("ROE data not available")
 
-    if latest_metrics.debt_to_equity and latest_metrics.debt_to_equity < 0.5:
+    if latest_metrics.debt_to_equity is not None and latest_metrics.debt_to_equity < 0.5:
         score += 2
         reasoning.append("Conservative debt levels")
-    elif latest_metrics.debt_to_equity:
+    elif latest_metrics.debt_to_equity is not None:
         reasoning.append(f"High debt to equity ratio of {latest_metrics.debt_to_equity:.1f}")
     else:
         reasoning.append("Debt to equity data not available")
 
-    if latest_metrics.operating_margin and latest_metrics.operating_margin > 0.15:
+    if latest_metrics.operating_margin is not None and latest_metrics.operating_margin > 0.15:
         score += 2
         reasoning.append("Strong operating margins")
-    elif latest_metrics.operating_margin:
+    elif latest_metrics.operating_margin is not None:
         reasoning.append(f"Weak operating margin of {latest_metrics.operating_margin:.1%}")
     else:
         reasoning.append("Operating margin data not available")
 
-    if latest_metrics.current_ratio and latest_metrics.current_ratio > 1.5:
+    if latest_metrics.current_ratio is not None and latest_metrics.current_ratio > 1.5:
         score += 1
         reasoning.append("Good liquidity position")
-    elif latest_metrics.current_ratio:
+    elif latest_metrics.current_ratio is not None:
         reasoning.append(f"Weak liquidity with current ratio of {latest_metrics.current_ratio:.1f}")
     else:
         reasoning.append("Current ratio data not available")
 
-    return {"score": score, "details": "; ".join(reasoning), "metrics": latest_metrics.model_dump()}
+    return {
+        "score": score,
+        "details": "; ".join(reasoning),
+        "metrics": latest_metrics.model_dump() if latest_metrics else {},
+    }
 
 def analyze_consistency(metrics: List[BuffettFinancialMetrics]) -> dict[str, any]:
     """Analyze earnings consistency and growth."""
@@ -147,7 +166,7 @@ def analyze_consistency(metrics: List[BuffettFinancialMetrics]) -> dict[str, any
     score = 0
     reasoning = []
 
-    earnings_values = [item.net_income for item in metrics if item.net_income]
+    earnings_values = [item.net_income for item in metrics if item.net_income is not None]
     if len(earnings_values) >= 4:
         earnings_growth = all(earnings_values[i] > earnings_values[i + 1] for i in range(len(earnings_values) - 1))
         if earnings_growth:
@@ -157,7 +176,7 @@ def analyze_consistency(metrics: List[BuffettFinancialMetrics]) -> dict[str, any
             reasoning.append("Inconsistent earnings growth pattern")
 
         if len(earnings_values) >= 2:
-            growth_rate = (earnings_values[0] - earnings_values[-1]) / abs(earnings_values[-1])
+            growth_rate = (earnings_values[0] - earnings_values[-1]) / abs(earnings_values[-1]) if earnings_values[-1] != 0 else 0
             reasoning.append(f"Total earnings growth of {growth_rate:.1%} over past {len(earnings_values)} periods")
     else:
         reasoning.append("Insufficient earnings data for trend analysis")
@@ -165,40 +184,67 @@ def analyze_consistency(metrics: List[BuffettFinancialMetrics]) -> dict[str, any
     return {"score": score, "details": "; ".join(reasoning)}
 
 def calculate_owner_earnings(metrics: List[BuffettFinancialMetrics]) -> dict[str, any]:
+    """Calculate owner earnings."""
     if not metrics or len(metrics) < 1:
-        return {"owner_earnings": None, "details": ["Insufficient data for owner earnings calculation"]}
+        return {"owner_earnings": None, "details": ["Insufficient data for owner earnings calculation"], "components": {}}
 
     latest = metrics[0]
     net_income = latest.net_income
     depreciation = latest.depreciation_and_amortization
     capex = latest.capital_expenditure
 
-    if not all([net_income, depreciation, capex]):  # All required now
-        return {"owner_earnings": None, "details": ["Missing components for owner earnings calculation"]}
+    if not all(x is not None for x in [net_income, depreciation, capex]):
+        return {
+            "owner_earnings": None,
+            "details": ["Missing components for owner earnings calculation"],
+            "components": {
+                "net_income": net_income,
+                "depreciation": depreciation,
+                "maintenance_capex": None,
+            },
+        }
 
     maintenance_capex = capex * 0.75
     owner_earnings = net_income + depreciation - maintenance_capex
 
     return {
         "owner_earnings": owner_earnings,
-        "components": {"net_income": net_income, "depreciation": depreciation, "maintenance_capex": maintenance_capex},
+        "components": {
+            "net_income": net_income,
+            "depreciation": depreciation,
+            "maintenance_capex": maintenance_capex,
+        },
         "details": ["Owner earnings calculated successfully"],
     }
 
 def calculate_intrinsic_value(metrics: List[BuffettFinancialMetrics]) -> dict[str, any]:
     """Calculate intrinsic value using DCF with owner earnings."""
     if not metrics:
-        return {"value": None, "details": ["Insufficient data for valuation"]}
+        return {
+            "intrinsic_value": None,
+            "details": ["Insufficient data for valuation"],
+            "owner_earnings": None,
+            "assumptions": {},
+        }
 
     earnings_data = calculate_owner_earnings(metrics)
-    if not earnings_data["owner_earnings"]:
-        return {"value": None, "details": earnings_data["details"]}
+    owner_earnings = earnings_data.get("owner_earnings")
+    if not owner_earnings:
+        return {
+            "intrinsic_value": None,
+            "details": earnings_data.get("details", ["No owner earnings available"]),
+            "owner_earnings": None,
+            "assumptions": {},
+        }
 
-    owner_earnings = earnings_data["owner_earnings"]
-    shares_outstanding = metrics[0].outstanding_shares
-
+    shares_outstanding = metrics[0].outstanding_shares if metrics and metrics[0].outstanding_shares else None
     if not shares_outstanding:
-        return {"value": None, "details": ["Missing shares outstanding data"]}
+        return {
+            "intrinsic_value": None,
+            "details": ["Missing shares outstanding data"],
+            "owner_earnings": owner_earnings,
+            "assumptions": {},
+        }
 
     growth_rate = 0.05
     discount_rate = 0.09
